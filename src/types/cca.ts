@@ -50,6 +50,7 @@ export interface MatchState {
   timerTotal: number;
   timerRunning: boolean;
   timerLastUpdated: number;
+  timerExpiresAt?: number | null; // Wall-clock timestamp when countdown reaches 0 (prevents jitter)
 
   // LCD & Display Mode
   screenMode: ScreenMode;
@@ -71,6 +72,8 @@ export interface MatchState {
 }
 
 export interface AppState {
+  version?: number;
+  updatedAt?: number;
   teams: Team[];
   match: MatchState;
   scoreLogs: ScoreLogItem[];

@@ -8,6 +8,7 @@ interface CountdownTimerProps {
   seconds: number;
   totalSeconds: number;
   isRunning: boolean;
+  expiresAt?: number | null;
   activeTeam?: 'A' | 'B' | null;
   teamAName?: string;
   teamBName?: string;
@@ -24,6 +25,7 @@ export const CountdownTimer: React.FC<CountdownTimerProps> = ({
   seconds,
   totalSeconds,
   isRunning,
+  expiresAt,
   activeTeam,
   teamAName = 'Tim A',
   teamBName = 'Tim B',
@@ -35,26 +37,58 @@ export const CountdownTimer: React.FC<CountdownTimerProps> = ({
   onSetCustomTotal,
   showControls = false,
 }) => {
+  // Local smooth remaining seconds calculation based on expiresAt timestamp
+  const [remainingSeconds, setRemainingSeconds] = useState<number>(seconds);
   const prevSecRef = useRef<number>(seconds);
+
   const [customInput, setCustomInput] = useState<string>('');
+  const [customUnit, setCustomUnit] = useState<'detik' | 'menit'>('menit');
   const [showCustomInput, setShowCustomInput] = useState<boolean>(false);
+
+  // Sync state and run monotonic wall-clock countdown when running
+  useEffect(() => {
+    if (!isRunning || !expiresAt) {
+      setRemainingSeconds(seconds);
+      prevSecRef.current = seconds;
+      return;
+    }
+
+    const calc = () => {
+      const diffMs = expiresAt - Date.now();
+      const sec = Math.max(0, Math.ceil(diffMs / 1000));
+      setRemainingSeconds(sec);
+    };
+
+    calc();
+    const interval = setInterval(calc, 120);
+    return () => clearInterval(interval);
+  }, [isRunning, expiresAt, seconds]);
 
   // Sound triggering on seconds change when running
   useEffect(() => {
-    if (isRunning && seconds !== prevSecRef.current) {
-      if (seconds > 0) {
-        const isCritical = seconds <= 5;
+    if (isRunning && remainingSeconds !== prevSecRef.current) {
+      if (remainingSeconds > 0) {
+        const isCritical = remainingSeconds <= 5;
         sounds.playTick(isCritical);
-      } else if (seconds === 0) {
+      } else if (remainingSeconds === 0 && prevSecRef.current > 0) {
         sounds.playTimeout();
       }
-      prevSecRef.current = seconds;
+      prevSecRef.current = remainingSeconds;
     }
-  }, [seconds, isRunning]);
+  }, [remainingSeconds, isRunning]);
 
-  const progress = totalSeconds > 0 ? (seconds / totalSeconds) * 100 : 0;
-  const isCritical = seconds <= 5 && seconds > 0;
-  const isTimeUp = seconds === 0;
+  const effectiveTotal = Math.max(1, totalSeconds);
+  const progress = (remainingSeconds / effectiveTotal) * 100;
+  const isCritical = remainingSeconds <= 5 && remainingSeconds > 0;
+  const isTimeUp = remainingSeconds === 0;
+
+  // Determine whether to use Minutes display (>60 seconds setting)
+  const isMinuteMode = effectiveTotal > 60;
+  const mins = Math.floor(remainingSeconds / 60);
+  const secs = remainingSeconds % 60;
+  const formattedTime = isMinuteMode
+    ? `${mins}:${secs < 10 ? '0' : ''}${secs}`
+    : `${remainingSeconds}`;
 
   // Color mapping based on urgency
   let strokeColor = '#10B981'; // Green
@@ -84,12 +118,13 @@ export const CountdownTimer: React.FC<CountdownTimerProps> = ({
 
   const handleApplyCustom = (e: React.FormEvent) => {
     e.preventDefault();
-    const parsed = parseInt(customInput, 10);
-    if (!isNaN(parsed) && parsed > 0) {
+    const val = parseInt(customInput, 10);
+    if (!isNaN(val) && val > 0) {
+      const calculatedSeconds = customUnit === 'menit' ? val * 60 : val;
       if (onSetCustomTotal) {
-        onSetCustomTotal(parsed);
+        onSetCustomTotal(calculatedSeconds);
       } else if (onReset) {
-        onReset(parsed);
+        onReset(calculatedSeconds);
       }
       setCustomInput('');
       setShowCustomInput(false);
@@ -147,24 +182,30 @@ export const CountdownTimer: React.FC<CountdownTimerProps> = ({
         </svg>
 
         {/* Center Countdown Value */}
-        <div className="absolute flex flex-col items-center justify-center text-center">
+        <div className="absolute flex flex-col items-center justify-center text-center px-2">
           <span
-            className={`font-black tracking-tighter leading-none ${textColor} ${
-              size === 'huge'
+            className={`font-black tracking-tight leading-none ${textColor} ${
+              isMinuteMode
+                ? size === 'huge'
+                  ? 'text-5xl sm:text-7xl font-mono'
+                  : size === 'normal'
+                  ? 'text-4xl sm:text-5xl font-mono'
+                  : 'text-2xl font-mono'
+                : size === 'huge'
                 ? 'text-8xl'
                 : size === 'normal'
                 ? 'text-6xl'
                 : 'text-3xl'
             }`}
           >
-            {seconds}
+            {formattedTime}
           </span>
           <span
             className={`font-semibold uppercase tracking-widest text-slate-400 mt-1 ${
               size === 'huge' ? 'text-xs' : 'text-[10px]'
             }`}
           >
-            {isTimeUp ? 'WAKTU HABIS' : 'DETIK'}
+            {isTimeUp ? 'WAKTU HABIS' : isMinuteMode ? 'MENIT' : 'DETIK'}
           </span>
         </div>
       </div>
@@ -219,52 +260,84 @@ export const CountdownTimer: React.FC<CountdownTimerProps> = ({
           </div>
 
           {/* Preset Pills & Custom Trigger */}
-          <div className="flex flex-wrap items-center justify-center gap-1 w-full pt-2 border-t border-slate-800/80">
+          <div className="flex flex-wrap items-center justify-center gap-1.5 w-full pt-2 border-t border-slate-800/80">
             <span className="text-[10px] uppercase font-bold text-slate-500 mr-1">
               Atur:
             </span>
-            {[5, 10, 15, 20, 30, 45, 60].map((preset) => (
+            {[
+              { label: '15s', sec: 15 },
+              { label: '30s', sec: 30 },
+              { label: '45s', sec: 45 },
+              { label: '1 Menit', sec: 60 },
+              { label: '2 Menit', sec: 120 },
+              { label: '3 Menit', sec: 180 },
+              { label: '5 Menit', sec: 300 },
+            ].map((preset) => (
               <button
-                key={preset}
+                key={preset.sec}
                 onClick={() => {
                   if (onSetCustomTotal) {
-                    onSetCustomTotal(preset);
+                    onSetCustomTotal(preset.sec);
                   } else if (onReset) {
-                    onReset(preset);
+                    onReset(preset.sec);
                   }
                 }}
                 className={`px-2 py-1 rounded-lg text-xs font-bold transition-all border ${
-                  totalSeconds === preset
+                  effectiveTotal === preset.sec
                     ? 'bg-amber-400 text-slate-950 border-amber-300 shadow-sm'
                     : 'bg-slate-900 text-slate-300 border-slate-800 hover:bg-slate-800'
                 }`}
               >
-                {preset}s
+                {preset.label}
               </button>
             ))}
 
             <button
               onClick={() => setShowCustomInput(!showCustomInput)}
               className="px-2 py-1 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-amber-400 border border-slate-700 transition-all"
-              title="Input detik kustom"
+              title="Atur durasi kustom"
             >
               Kustom...
             </button>
           </div>
 
-          {/* Custom Input Form Dropdown */}
+          {/* Custom Input Form Dropdown with Menit / Detik selector */}
           {showCustomInput && (
             <form onSubmit={handleApplyCustom} className="flex items-center gap-1.5 w-full mt-1 animate-fade-in">
               <input
                 type="number"
                 min="1"
-                max="300"
+                max={customUnit === 'menit' ? '30' : '1800'}
                 value={customInput}
                 onChange={(e) => setCustomInput(e.target.value)}
-                placeholder="Detik..."
+                placeholder={customUnit === 'menit' ? 'Jml Menit...' : 'Jml Detik...'}
                 className="w-full px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-400"
                 autoFocus
               />
+              <div className="flex bg-slate-900 p-0.5 rounded-lg border border-slate-800 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setCustomUnit('menit')}
+                  className={`px-2 py-1 text-[11px] font-bold rounded-md transition-all ${
+                    customUnit === 'menit'
+                      ? 'bg-amber-400 text-slate-950'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Menit
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCustomUnit('detik')}
+                  className={`px-2 py-1 text-[11px] font-bold rounded-md transition-all ${
+                    customUnit === 'detik'
+                      ? 'bg-amber-400 text-slate-950'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Detik
+                </button>
+              </div>
               <button
                 type="submit"
                 className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs shrink-0"

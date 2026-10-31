@@ -104,6 +104,8 @@ export const INITIAL_TEAMS: Team[] = [
 ];
 
 export const INITIAL_APP_STATE: AppState = {
+  version: 1,
+  updatedAt: Date.now(),
   teams: INITIAL_TEAMS,
   match: {
     sessionNumber: 1,
@@ -119,6 +121,7 @@ export const INITIAL_APP_STATE: AppState = {
     timerTotal: 15,
     timerRunning: false,
     timerLastUpdated: Date.now(),
+    timerExpiresAt: null,
     screenMode: 'welcome',
     questionNumber: 1,
     spinWinnerId: null,

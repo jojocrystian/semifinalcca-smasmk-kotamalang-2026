@@ -170,10 +170,14 @@ export default function LcdStagePage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 flex-wrap justify-end">
           <span className="px-3 py-1 rounded-full bg-slate-900 border border-slate-800 text-xs font-bold text-slate-300 flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
             LIVE STAGE DISPLAY
+          </span>
+          <span className="px-3 py-1 rounded-full bg-slate-900 border border-slate-800 text-amber-300 text-xs font-bold flex items-center gap-1.5">
+            <Clock className="w-3.5 h-3.5 text-amber-400" />
+            TIMER: {(state.match.timerTotal || 15) > 60 ? `${Math.floor((state.match.timerTotal || 15) / 60)} Menit` : `${state.match.timerTotal || 15}s`}
           </span>
           <span className="px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-black uppercase tracking-wider flex items-center gap-1.5">
             <Target className="w-3.5 h-3.5 text-emerald-400" />
@@ -464,6 +468,7 @@ export default function LcdStagePage() {
                   seconds={state.match.timerSeconds}
                   totalSeconds={state.match.timerTotal}
                   isRunning={state.match.timerRunning}
+                  expiresAt={state.match.timerExpiresAt}
                   activeTeam={state.match.activeAnsweringTeam}
                   teamAName={teamA?.name}
                   teamBName={teamB?.name}

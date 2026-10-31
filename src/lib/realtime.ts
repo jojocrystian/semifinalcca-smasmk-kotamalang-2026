@@ -11,6 +11,13 @@ type ConnectionListener = (status: {
   lastSyncSource: string;
 }) => void;
 
+interface ExtendedSyncAction {
+  type: string;
+  payload?: unknown;
+  _version?: number;
+  _sourceId?: string;
+}
+
 class RealtimeManager {
   private state: AppState = INITIAL_APP_STATE;
   private stateListeners: Set<StateListener> = new Set();
@@ -18,14 +25,16 @@ class RealtimeManager {
   private broadcastChannel: BroadcastChannel | null = null;
   private peer: unknown = null;
   private peerConnections: Map<string, unknown> = new Map();
-  private isHost: boolean = false;
   private isPeerConnected: boolean = false;
-  private lastSyncSource: string = 'Local';
-  private pollingInterval: NodeJS.Timeout | null = null;
+  private lastSyncSource: string = 'Inisialisasi';
+  private cloudSyncInterval: NodeJS.Timeout | null = null;
+  private clientId: string = '';
   private role: 'admin' | 'juri' | 'lcd' | 'viewer' = 'viewer';
+  private isInitialized: boolean = false;
 
   constructor() {
     if (typeof window !== 'undefined') {
+      this.clientId = `client-${Math.random().toString(36).substring(2, 9)}`;
       this.initLocalStorage();
       this.initBroadcastChannel();
       this.initStorageListener();
@@ -40,11 +49,14 @@ class RealtimeManager {
         this.state = {
           ...INITIAL_APP_STATE,
           ...parsed,
+          version: parsed.version || 1,
+          updatedAt: parsed.updatedAt || Date.now(),
           match: {
             ...INITIAL_APP_STATE.match,
             ...(parsed.match || {}),
-            // Ensure timer isn't stuck running across page loads
-            timerRunning: false,
+            // Ensure timer isn't stuck running across cold page reloads
+            timerRunning: parsed.match?.timerExpiresAt ? parsed.match.timerExpiresAt > Date.now() : false,
+            timerExpiresAt: parsed.match?.timerExpiresAt || null,
           },
         };
       }
@@ -58,10 +70,16 @@ class RealtimeManager {
     try {
       this.broadcastChannel = new BroadcastChannel(BROADCAST_CHANNEL_NAME);
       this.broadcastChannel.onmessage = (event) => {
-        if (event.data?.type === 'BROADCAST_ACTION') {
-          this.handleIncomingAction(event.data.action, 'Local BroadcastChannel');
-        } else if (event.data?.type === 'BROADCAST_FULL_STATE') {
-          this.updateLocalState(event.data.state, 'Local BroadcastChannel');
+        if (!event.data) return;
+        if (event.data.type === 'BROADCAST_ACTION' && event.data.action) {
+          if (event.data.sourceId === this.clientId) return; // Ignore own echoes
+          this.handleIncomingAction(event.data.action, 'Local BroadcastChannel', event.data.version);
+        } else if (event.data.type === 'BROADCAST_FULL_STATE' && event.data.state) {
+          if (event.data.sourceId === this.clientId) return;
+          const remoteVersion = event.data.version || event.data.state.version || 0;
+          if (remoteVersion > (this.state.version || 0)) {
+            this.updateLocalState(event.data.state, 'Local BroadcastChannel', remoteVersion);
+          }
         }
       };
     } catch (e) {
@@ -75,7 +93,10 @@ class RealtimeManager {
       if (event.key === STORAGE_KEY && event.newValue) {
         try {
           const parsed = JSON.parse(event.newValue);
-          this.updateLocalState(parsed, 'LocalStorage Sync');
+          const remoteVersion = parsed.version || 0;
+          if (remoteVersion > (this.state.version || 0)) {
+            this.updateLocalState(parsed, 'LocalStorage Sync', remoteVersion);
+          }
         } catch {
           // ignore parsing error
         }
@@ -136,7 +157,56 @@ class RealtimeManager {
     }
   }
 
-  // Initialize WebRTC Peer connection
+  // Continuous Cloud Polling: Guarantees realtime cross-device synchronization anywhere
+  private startCloudSyncLoop(room: string) {
+    if (this.cloudSyncInterval) return;
+    
+    // Poll every 650ms for low-latency synchronization across networks
+    this.cloudSyncInterval = setInterval(async () => {
+      try {
+        const v = this.state.version || 0;
+        const res = await fetch(`/api/sync?room=${encodeURIComponent(room)}&v=${v}`, {
+          cache: 'no-store',
+        });
+        if (!res.ok) return;
+        const json = await res.json();
+        
+        if (json.found && json.updated && json.state) {
+          const remoteVersion = json.version || 0;
+          const localVersion = this.state.version || 0;
+          if (remoteVersion > localVersion || (json.timestamp && json.timestamp > (this.state.updatedAt || 0))) {
+            this.updateLocalState(json.state, json.source || 'Cloud Sync', remoteVersion);
+          }
+        }
+      } catch {
+        // Quiet catch for standard background network fluctuations
+      }
+    }, 650);
+  }
+
+  // Fetch initial cloud state without triggering unprompted mutations
+  private async fetchInitialCloudState(room: string) {
+    try {
+      const res = await fetch(`/api/sync?room=${encodeURIComponent(room)}&v=0`, {
+        cache: 'no-store',
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.found && json.state) {
+          const remoteVersion = json.version || 0;
+          const localVersion = this.state.version || 0;
+          // If remote cloud has active room state, adopt it immediately
+          if (remoteVersion >= localVersion || (json.state.match && json.state.match.screenMode !== 'welcome')) {
+            this.updateLocalState(json.state, 'Sinkronisasi Cloud Awal', remoteVersion);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Initial cloud state fetch notice:', e);
+    }
+  }
+
+  // Initialize Realtime engine with PeerJS + Cloud loop
   public async initPeer(role: 'admin' | 'juri' | 'lcd' | 'viewer', customRoomCode?: string) {
     this.role = role;
     if (typeof window === 'undefined') return;
@@ -145,6 +215,13 @@ class RealtimeManager {
       .toUpperCase()
       .replace(/[^A-Z0-9_-]/g, '');
 
+    // 1. Immediately fetch existing room state from cloud
+    await this.fetchInitialCloudState(room);
+
+    // 2. Start continuous low-latency cloud loop
+    this.startCloudSyncLoop(room);
+
+    // 3. Setup WebRTC peer for direct low-latency P2P mesh
     try {
       const { default: Peer } = await import('peerjs');
       const hostPeerId = `cca-host-${room}`;
@@ -165,12 +242,10 @@ class RealtimeManager {
 
       peerInstance.on('open', (id: string) => {
         this.isPeerConnected = true;
-        this.lastSyncSource = `Peer Online (${id})`;
+        this.lastSyncSource = `Peer P2P Aktif (${id})`;
         this.notifyConnection();
 
-        if (role === 'admin') {
-          this.isHost = true;
-        } else {
+        if (role !== 'admin') {
           // Connect to admin host
           this.connectToHost(peerInstance, hostPeerId);
         }
@@ -186,13 +261,13 @@ class RealtimeManager {
         c.on('open', () => {
           this.peerConnections.set(c.peer, c);
           this.notifyConnection();
-          // If we are admin host, send current state to the newcomer
-          if (role === 'admin') {
-            c.send({
-              type: 'FULL_STATE_SYNC',
-              payload: this.state,
-            });
-          }
+          // DO NOT send unprompted full state sync that could overwrite remote screens.
+          // Send version handshake instead.
+          c.send({
+            type: 'VERSION_HANDSHAKE',
+            version: this.state.version || 1,
+            state: this.state,
+          });
         });
 
         c.on('data', (data: unknown) => {
@@ -206,15 +281,16 @@ class RealtimeManager {
       });
 
       peerInstance.on('error', (err: { type?: string }) => {
-        // If host ID is already taken and we're admin, might be a reloaded tab
         if (err.type === 'unavailable-id' && role === 'admin') {
-          console.warn('Host ID in use, attempting secondary connection...');
+          console.warn('Host ID in use, operating with cloud sync pipeline...');
         }
-        this.startServerlessPollingFallback();
+        this.lastSyncSource = 'Cloud Sync Terhubung';
+        this.notifyConnection();
       });
     } catch (e) {
-      console.warn('WebRTC peerjs init failed, falling back to local & polling sync:', e);
-      this.startServerlessPollingFallback();
+      console.warn('WebRTC peerjs init fallback to cloud sync:', e);
+      this.lastSyncSource = 'Cloud Sync Terhubung';
+      this.notifyConnection();
     }
   }
 
@@ -246,65 +322,74 @@ class RealtimeManager {
         setTimeout(() => this.connectToHost(peerInstance, hostPeerId), 3000);
       });
     } catch {
-      this.startServerlessPollingFallback();
+      // Background cloud sync handles all communication seamlessly
     }
   }
 
   private handleIncomingPeerData(data: unknown) {
     if (!data || typeof data !== 'object') return;
-    const action = data as SyncAction;
-    this.handleIncomingAction(action, 'WebRTC Peer');
-  }
+    const packet = data as ExtendedSyncAction & { state?: AppState; version?: number };
 
-  // Fallback serverless sync via API route /api/sync
-  private startServerlessPollingFallback() {
-    if (this.pollingInterval) return;
-    this.pollingInterval = setInterval(async () => {
-      try {
-        const res = await fetch('/api/sync?room=' + this.state.settings.roomCode);
-        if (res.ok) {
-          const json = await res.json();
-          if (json?.state && json.timestamp > (this.state.match.lastAction?.timestamp || 0)) {
-            this.updateLocalState(json.state, 'Vercel API Polling');
-          }
-        }
-      } catch {
-        // quiet ignore
+    if (packet.type === 'VERSION_HANDSHAKE') {
+      const remoteVer = packet.version || 0;
+      const localVer = this.state.version || 0;
+      if (packet.state && remoteVer > localVer) {
+        this.updateLocalState(packet.state, 'P2P Handshake Sync', remoteVer);
       }
-    }, 1200);
+      return;
+    }
+
+    const action = data as SyncAction & { _version?: number; _sourceId?: string };
+    if (action._sourceId === this.clientId) return; // Ignore own echoes
+    this.handleIncomingAction(action, 'WebRTC P2P', action._version);
   }
 
   public dispatch(action: SyncAction) {
-    // 1. Apply to local state immediately (zero lag UI!)
+    // 1. Advance version monotonically
+    const now = Date.now();
+    const nextVersion = (this.state.version || 0) + 1;
+    this.state.version = nextVersion;
+    this.state.updatedAt = now;
+
+    // 2. Apply to local state immediately (zero lag UI!)
     this.applyActionToState(action);
     this.saveToLocalStorage(this.state);
     this.notifyState();
 
-    // 2. Broadcast via BroadcastChannel (local tabs/windows: Admin <-> LCD <-> Juri)
+    const taggedAction = {
+      ...action,
+      _version: nextVersion,
+      _sourceId: this.clientId,
+      _timestamp: now,
+    };
+
+    // 3. Broadcast via BroadcastChannel (local tabs/windows: Admin <-> LCD <-> Juri)
     if (this.broadcastChannel) {
       try {
         this.broadcastChannel.postMessage({
           type: 'BROADCAST_ACTION',
-          action,
+          action: taggedAction,
+          version: nextVersion,
+          sourceId: this.clientId,
         });
       } catch {
         // ignore
       }
     }
 
-    // 3. Broadcast to all WebRTC peer connections
+    // 4. Broadcast to all WebRTC peer connections
     this.peerConnections.forEach((conn) => {
       try {
-        (conn as { send: (data: unknown) => void }).send(action);
+        (conn as { send: (data: unknown) => void }).send(taggedAction);
       } catch (err) {
         console.warn('Failed sending to peer:', err);
       }
     });
 
-    // 4. Async sync to serverless fallback API (fire and forget)
-    this.syncToServerlessAPI(action);
+    // 5. Atomic push to cloud API for multi-device cross-network persistence
+    this.syncToServerlessAPI(taggedAction);
 
-    // 5. If it's a score or match finish, trigger Google Sheets webhook if configured
+    // 6. If it's a score or match finish, trigger Google Sheets webhook if configured
     if (
       (action.type === 'RECORD_SCORE' || action.type === 'FINISH_MATCH_SESSION') &&
       this.state.settings.googleSheetsWebhookUrl
@@ -313,22 +398,45 @@ class RealtimeManager {
     }
   }
 
-  private handleIncomingAction(action: SyncAction, source: string) {
+  private handleIncomingAction(action: SyncAction, source: string, version?: number) {
+    if (version !== undefined && version <= (this.state.version || 0)) {
+      // Discard out-of-order stale packet
+      return;
+    }
+
     this.lastSyncSource = source;
+    if (version !== undefined) {
+      this.state.version = version;
+    } else {
+      this.state.version = (this.state.version || 0) + 1;
+    }
+    this.state.updatedAt = Date.now();
+
     this.applyActionToState(action);
     this.saveToLocalStorage(this.state);
     this.notifyState();
     this.notifyConnection();
   }
 
-  private updateLocalState(newState: AppState, source: string) {
+  private updateLocalState(newState: AppState, source: string, version?: number) {
+    const nextVer = version !== undefined ? version : (newState.version || (this.state.version || 0) + 1);
+    if (nextVer < (this.state.version || 0)) {
+      // Don't downgrade state
+      return;
+    }
+
     this.lastSyncSource = source;
-    this.state = newState;
+    this.state = {
+      ...newState,
+      version: nextVer,
+      updatedAt: newState.updatedAt || Date.now(),
+    };
+    this.saveToLocalStorage(this.state);
     this.notifyState();
     this.notifyConnection();
   }
 
-  private async syncToServerlessAPI(action: SyncAction) {
+  private async syncToServerlessAPI(action: SyncAction & { _version?: number }) {
     try {
       fetch('/api/sync', {
         method: 'POST',
@@ -337,6 +445,7 @@ class RealtimeManager {
           room: this.state.settings.roomCode,
           action,
           state: this.state,
+          version: this.state.version,
           timestamp: Date.now(),
         }),
       }).catch(() => {});
@@ -384,7 +493,11 @@ class RealtimeManager {
     const now = Date.now();
     switch (action.type) {
       case 'FULL_STATE_SYNC':
-        this.state = action.payload;
+        this.state = {
+          ...action.payload,
+          version: action.payload.version || (this.state.version || 0) + 1,
+          updatedAt: now,
+        };
         break;
 
       case 'UPDATE_MATCH':
@@ -488,6 +601,7 @@ class RealtimeManager {
             timerSeconds: sec,
             timerTotal: sec,
             timerRunning: false,
+            timerExpiresAt: null,
           },
           settings: action.payload.setAsDefault
             ? { ...this.state.settings, defaultTimerSeconds: sec }
@@ -497,7 +611,17 @@ class RealtimeManager {
       }
 
       case 'ADJUST_TIMER_REMAINING': {
-        const newSec = Math.max(0, this.state.match.timerSeconds + action.payload.deltaSeconds);
+        const delta = action.payload.deltaSeconds;
+        let newSec = this.state.match.timerSeconds;
+        let newExpiresAt = this.state.match.timerExpiresAt;
+
+        if (this.state.match.timerRunning && this.state.match.timerExpiresAt) {
+          newExpiresAt = Math.max(now, this.state.match.timerExpiresAt + delta * 1000);
+          newSec = Math.max(0, Math.ceil((newExpiresAt - now) / 1000));
+        } else {
+          newSec = Math.max(0, this.state.match.timerSeconds + delta);
+        }
+
         const newTotal = Math.max(this.state.match.timerTotal, newSec);
         this.state = {
           ...this.state,
@@ -505,6 +629,7 @@ class RealtimeManager {
             ...this.state.match,
             timerSeconds: newSec,
             timerTotal: newTotal,
+            timerExpiresAt: newExpiresAt,
           },
         };
         break;
@@ -524,6 +649,7 @@ class RealtimeManager {
             timerSeconds: this.state.settings.defaultTimerSeconds,
             timerTotal: this.state.settings.defaultTimerSeconds,
             timerRunning: false,
+            timerExpiresAt: null,
             screenMode: 'match',
             lastAction: {
               type: 'RESET',
@@ -591,6 +717,7 @@ class RealtimeManager {
             teamAScore: newTeamAScore,
             teamBScore: newTeamBScore,
             timerRunning: false, // Stop timer once judged
+            timerExpiresAt: null,
             lastAction: {
               type: isCorrect ? 'BENAR' : 'SALAH',
               team,
@@ -649,14 +776,16 @@ class RealtimeManager {
       case 'START_TIMER': {
         const seconds = action.payload?.seconds ?? this.state.match.timerSeconds;
         const activeTeam = action.payload?.team ?? this.state.match.activeAnsweringTeam;
+        const expiresAt = now + seconds * 1000;
         this.state = {
           ...this.state,
           match: {
             ...this.state.match,
             activeAnsweringTeam: activeTeam || null,
             timerSeconds: seconds,
-            timerTotal: seconds,
+            timerTotal: Math.max(this.state.match.timerTotal, seconds),
             timerRunning: true,
+            timerExpiresAt: expiresAt,
             timerLastUpdated: now,
             lastAction: {
               type: 'TIMER_START',
@@ -669,18 +798,31 @@ class RealtimeManager {
         break;
       }
 
-      case 'PAUSE_TIMER':
+      case 'PAUSE_TIMER': {
+        let remaining = this.state.match.timerSeconds;
+        if (this.state.match.timerExpiresAt) {
+          remaining = Math.max(0, Math.ceil((this.state.match.timerExpiresAt - now) / 1000));
+        }
         this.state = {
           ...this.state,
           match: {
             ...this.state.match,
+            timerSeconds: remaining,
             timerRunning: false,
+            timerExpiresAt: null,
+            lastAction: {
+              type: 'RESET',
+              team: null,
+              points: 0,
+              timestamp: now,
+            },
           },
         };
         break;
+      }
 
       case 'RESET_TIMER': {
-        const resetSec = action.payload?.seconds ?? this.state.settings.defaultTimerSeconds;
+        const resetSec = action.payload?.seconds ?? this.state.match.timerTotal ?? this.state.settings.defaultTimerSeconds;
         this.state = {
           ...this.state,
           match: {
@@ -688,7 +830,14 @@ class RealtimeManager {
             timerSeconds: resetSec,
             timerTotal: resetSec,
             timerRunning: false,
+            timerExpiresAt: null,
             activeAnsweringTeam: null,
+            lastAction: {
+              type: 'RESET',
+              team: null,
+              points: 0,
+              timestamp: now,
+            },
           },
         };
         break;
@@ -771,6 +920,7 @@ class RealtimeManager {
             teamBScore: 0,
             activeAnsweringTeam: null,
             timerRunning: false,
+            timerExpiresAt: null,
             screenMode: 'leaderboard',
           },
         };

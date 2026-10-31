@@ -32,6 +32,24 @@ export default function JuryPortalPage() {
   });
   const [soundMuted, setSoundMuted] = useState(false);
   const [lastJudgedNotice, setLastJudgedNotice] = useState<string | null>(null);
+  const [juriTimerSec, setJuriTimerSec] = useState<number>(0);
+
+  useEffect(() => {
+    if (!state.match.timerRunning || !state.match.timerExpiresAt) {
+      setJuriTimerSec(state.match.timerSeconds);
+      return;
+    }
+
+    const calc = () => {
+      const diffMs = (state.match.timerExpiresAt || 0) - Date.now();
+      const s = Math.max(0, Math.ceil(diffMs / 1000));
+      setJuriTimerSec(s);
+    };
+
+    calc();
+    const interval = setInterval(calc, 120);
+    return () => clearInterval(interval);
+  }, [state.match.timerRunning, state.match.timerExpiresAt, state.match.timerSeconds]);
 
   useEffect(() => {
     setMounted(true);
@@ -86,9 +104,10 @@ export default function JuryPortalPage() {
   };
 
   const handleStartTimerFor = (team: 'A' | 'B') => {
+    const sec = state.match.timerSeconds > 0 ? state.match.timerSeconds : (state.match.timerTotal || state.settings.defaultTimerSeconds);
     realtime.dispatch({
       type: 'START_TIMER',
-      payload: { team, seconds: state.settings.defaultTimerSeconds },
+      payload: { team, seconds: sec },
     });
   };
 
@@ -97,9 +116,10 @@ export default function JuryPortalPage() {
   };
 
   const handleResetTimer = () => {
+    const sec = state.match.timerTotal || state.settings.defaultTimerSeconds;
     realtime.dispatch({
       type: 'RESET_TIMER',
-      payload: { seconds: state.settings.defaultTimerSeconds },
+      payload: { seconds: sec },
     });
   };
 
@@ -224,20 +244,34 @@ export default function JuryPortalPage() {
           </div>
 
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 bg-slate-950 px-4 py-2 rounded-xl border border-slate-800">
-              <span
-                className={`font-black text-2xl ${
-                  state.match.timerSeconds <= 5 && state.match.timerSeconds > 0
-                    ? 'text-rose-400 animate-pulse'
-                    : state.match.timerSeconds === 0
-                    ? 'text-red-500'
-                    : 'text-amber-400'
-                }`}
-              >
-                {state.match.timerSeconds}
-              </span>
-              <span className="text-[11px] font-bold text-slate-400">Detik</span>
-            </div>
+            {(() => {
+              const effectiveTotal = state.match.timerTotal || state.settings.defaultTimerSeconds;
+              const isMinuteMode = effectiveTotal > 60;
+              const mins = Math.floor(juriTimerSec / 60);
+              const secs = juriTimerSec % 60;
+              const timeDisplay = isMinuteMode ? `${mins}:${secs < 10 ? '0' : ''}${secs}` : `${juriTimerSec}`;
+              const isCritical = juriTimerSec <= 5 && juriTimerSec > 0;
+              const isTimeUp = juriTimerSec === 0;
+
+              return (
+                <div className="flex items-center gap-2 bg-slate-950 px-4 py-2 rounded-xl border border-slate-800">
+                  <span
+                    className={`font-black text-2xl font-mono ${
+                      isTimeUp
+                        ? 'text-red-500 animate-pulse'
+                        : isCritical
+                        ? 'text-rose-400 animate-pulse'
+                        : 'text-amber-400'
+                    }`}
+                  >
+                    {timeDisplay}
+                  </span>
+                  <span className="text-[11px] font-bold text-slate-400 uppercase">
+                    {isTimeUp ? 'Habis' : isMinuteMode ? 'Menit' : 'Detik'}
+                  </span>
+                </div>
+              );
+            })()}
 
             <div className="flex flex-wrap items-center gap-1.5">
               {state.match.timerRunning ? (
@@ -251,7 +285,7 @@ export default function JuryPortalPage() {
               <button
                 onClick={handleResetTimer}
                 className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700"
-                title={`Reset Timer (${state.match.timerTotal}s)`}
+                title={`Reset Timer (${state.match.timerTotal > 60 ? Math.floor(state.match.timerTotal / 60) + ' Menit' : state.match.timerTotal + 's'})`}
               >
                 <RotateCcw className="w-4 h-4" />
               </button>
@@ -355,7 +389,7 @@ export default function JuryPortalPage() {
                 <Clock className="w-4 h-4" />
                 {state.match.activeAnsweringTeam === 'A' && state.match.timerRunning
                   ? 'Timer Berjalan...'
-                  : 'Mulai Timer Menjawab Tim A'}
+                  : `Mulai Timer Menjawab Tim A (${(state.match.timerTotal || 15) > 60 ? Math.floor((state.match.timerTotal || 15) / 60) + ' Menit' : (state.match.timerTotal || 15) + 's'})`}
               </button>
             </div>
 
@@ -427,7 +461,7 @@ export default function JuryPortalPage() {
                 <Clock className="w-4 h-4" />
                 {state.match.activeAnsweringTeam === 'B' && state.match.timerRunning
                   ? 'Timer Berjalan...'
-                  : 'Mulai Timer Menjawab Tim B'}
+                  : `Mulai Timer Menjawab Tim B (${(state.match.timerTotal || 15) > 60 ? Math.floor((state.match.timerTotal || 15) / 60) + ' Menit' : (state.match.timerTotal || 15) + 's'})`}
               </button>
             </div>
 

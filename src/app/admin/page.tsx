@@ -59,6 +59,14 @@ export default function AdminPage() {
   // Custom Timer Modal state
   const [showTimerModal, setShowTimerModal] = useState(false);
   const [customTimerInput, setCustomTimerInput] = useState<number>(15);
+  const [customTimerUnit, setCustomTimerUnit] = useState<'detik' | 'menit'>('detik');
+
+  const formatDurationDisplay = (totalSec: number) => {
+    if (totalSec < 60) return `${totalSec}s`;
+    const m = Math.floor(totalSec / 60);
+    const r = totalSec % 60;
+    return r === 0 ? `${m} Menit` : `${m}m ${r}s`;
+  };
 
   // Custom Points Rules Modal state
   const [showPointsModal, setShowPointsModal] = useState(false);
@@ -185,40 +193,7 @@ export default function AdminPage() {
     setDirectScoreTarget(null);
   };
 
-  // Timer interval for host admin
-  useEffect(() => {
-    let interval: NodeJS.Timeout | null = null;
-    if (state.match.timerRunning && state.match.timerSeconds > 0) {
-      interval = setInterval(() => {
-        const currentSec = realtime.getState().match.timerSeconds;
-        if (currentSec > 1) {
-          realtime.dispatch({
-            type: 'UPDATE_MATCH',
-            payload: { timerSeconds: currentSec - 1 },
-          });
-        } else if (currentSec === 1) {
-          // Timeout!
-          realtime.dispatch({
-            type: 'UPDATE_MATCH',
-            payload: {
-              timerSeconds: 0,
-              timerRunning: false,
-              lastAction: {
-                type: 'TIMER_TIMEOUT',
-                team: null,
-                points: 0,
-                timestamp: Date.now(),
-              },
-            },
-          });
-        }
-      }, 1000);
-    }
-
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [state.match.timerRunning, state.match.timerSeconds]);
+  // Audio and sound toggling
 
   const toggleSound = () => {
     const nextMuted = !soundMuted;
@@ -313,9 +288,10 @@ export default function AdminPage() {
   };
 
   const handleStartTimerForTeam = (team: 'A' | 'B') => {
+    const sec = state.match.timerSeconds > 0 ? state.match.timerSeconds : (state.match.timerTotal || state.settings.defaultTimerSeconds);
     realtime.dispatch({
       type: 'START_TIMER',
-      payload: { team, seconds: state.settings.defaultTimerSeconds },
+      payload: { team, seconds: sec },
     });
   };
 
@@ -326,7 +302,7 @@ export default function AdminPage() {
   const handleResetTimer = (seconds?: number) => {
     realtime.dispatch({
       type: 'RESET_TIMER',
-      payload: { seconds: seconds || state.settings.defaultTimerSeconds },
+      payload: { seconds: seconds || state.match.timerTotal || state.settings.defaultTimerSeconds },
     });
   };
 
@@ -456,7 +432,7 @@ export default function AdminPage() {
               title="Atur durasi timer kustom"
             >
               <Sliders className="w-3.5 h-3.5 text-amber-400" />
-              <span>{state.match.timerTotal}s</span>
+              <span>{formatDurationDisplay(state.match.timerTotal)}</span>
             </button>
 
             {/* Custom Points Button */}
@@ -907,7 +883,7 @@ export default function AdminPage() {
                     title="Atur durasi timer kustom"
                   >
                     <Sliders className="w-3 h-3 text-amber-400" />
-                    <span>Durasi: {state.match.timerTotal}s</span>
+                    <span>Durasi: {formatDurationDisplay(state.match.timerTotal)}</span>
                   </button>
                 </div>
 
@@ -915,6 +891,7 @@ export default function AdminPage() {
                   seconds={state.match.timerSeconds}
                   totalSeconds={state.match.timerTotal}
                   isRunning={state.match.timerRunning}
+                  expiresAt={state.match.timerExpiresAt}
                   activeTeam={state.match.activeAnsweringTeam}
                   teamAName={teamA?.name}
                   teamBName={teamB?.name}
@@ -1472,45 +1449,102 @@ export default function AdminPage() {
             <form
               onSubmit={(e) => {
                 e.preventDefault();
-                handleSetCustomTimer(customTimerInput, true);
+                const totalSeconds = customTimerUnit === 'menit' ? customTimerInput * 60 : customTimerInput;
+                handleSetCustomTimer(totalSeconds, true);
               }}
               className="space-y-4"
             >
               <div>
-                <label className="block text-xs font-bold text-slate-300 uppercase mb-1">
-                  Durasi Waktu (Detik)
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  max="300"
-                  value={customTimerInput}
-                  onChange={(e) => setCustomTimerInput(parseInt(e.target.value, 10) || 1)}
-                  className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-center text-white font-black text-2xl focus:outline-none focus:border-amber-400"
-                  required
-                />
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-bold text-slate-300 uppercase">
+                    Durasi Timer Countdown
+                  </label>
+                  <div className="flex bg-slate-950 p-0.5 rounded-lg border border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (customTimerUnit !== 'menit') {
+                          setCustomTimerUnit('menit');
+                          setCustomTimerInput(Math.max(1, Math.round(customTimerInput / 60)));
+                        }
+                      }}
+                      className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${
+                        customTimerUnit === 'menit'
+                          ? 'bg-amber-400 text-slate-950'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Menit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (customTimerUnit !== 'detik') {
+                          setCustomTimerUnit('detik');
+                          setCustomTimerInput(customTimerInput * 60 || 60);
+                        }
+                      }}
+                      className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${
+                        customTimerUnit === 'detik'
+                          ? 'bg-amber-400 text-slate-950'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Detik
+                    </button>
+                  </div>
+                </div>
+                <div className="relative">
+                  <input
+                    type="number"
+                    min="1"
+                    max={customTimerUnit === 'menit' ? 30 : 1800}
+                    value={customTimerInput}
+                    onChange={(e) => setCustomTimerInput(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                    className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-center text-white font-black text-2xl focus:outline-none focus:border-amber-400"
+                    required
+                  />
+                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-500 uppercase">
+                    {customTimerUnit}
+                  </span>
+                </div>
               </div>
 
               {/* Quick Presets */}
               <div>
                 <span className="text-[11px] font-semibold text-slate-400 block mb-1.5">
-                  Pilihan Cepat:
+                  Pilihan Cepat Standar:
                 </span>
-                <div className="grid grid-cols-4 gap-2">
-                  {[5, 10, 15, 20, 25, 30, 45, 60].map((preset) => (
-                    <button
-                      key={preset}
-                      type="button"
-                      onClick={() => setCustomTimerInput(preset)}
-                      className={`py-2 rounded-xl text-xs font-bold border transition-all ${
-                        customTimerInput === preset
-                          ? 'bg-amber-400 text-slate-950 border-amber-300'
-                          : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
-                      }`}
-                    >
-                      {preset}s
-                    </button>
-                  ))}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {[
+                    { label: '15 Detik', sec: 15, isMin: false, val: 15 },
+                    { label: '30 Detik', sec: 30, isMin: false, val: 30 },
+                    { label: '45 Detik', sec: 45, isMin: false, val: 45 },
+                    { label: '1 Menit', sec: 60, isMin: true, val: 1 },
+                    { label: '2 Menit', sec: 120, isMin: true, val: 2 },
+                    { label: '3 Menit', sec: 180, isMin: true, val: 3 },
+                    { label: '5 Menit', sec: 300, isMin: true, val: 5 },
+                  ].map((preset) => {
+                    const isSelected =
+                      (customTimerUnit === 'menit' ? customTimerInput * 60 : customTimerInput) === preset.sec;
+                    return (
+                      <button
+                        key={preset.sec}
+                        type="button"
+                        onClick={() => {
+                          setCustomTimerUnit(preset.isMin ? 'menit' : 'detik');
+                          setCustomTimerInput(preset.val);
+                        }}
+                        className={`py-2 px-1 rounded-xl text-xs font-bold border transition-all text-center ${
+                          isSelected
+                            ? 'bg-amber-400 text-slate-950 border-amber-300 shadow-md shadow-amber-400/20'
+                            : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                        }`}
+                      >
+                        {preset.label}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
