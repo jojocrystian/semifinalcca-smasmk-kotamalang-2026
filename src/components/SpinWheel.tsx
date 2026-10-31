@@ -48,6 +48,7 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
 
   // Initialize with spinData.startTime to prevent re-spinning on mount/reload
   const lastProcessedStartTime = useRef<number | null>(spinData?.startTime ?? null);
+  const mountTimeRef = useRef<number>(Date.now());
 
   // Filter only teams that are NOT eliminated from wheel
   const availableTeams = teams.filter((t) => !t.isEliminatedFromWheel);
@@ -168,8 +169,11 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
   useEffect(() => {
     if (!spinData) return;
 
-    // If this spin was already processed or is from a previous page load/refresh, do not re-spin!
-    if (spinData.startTime === lastProcessedStartTime.current) {
+    // If this spin was already processed or is from before this component mounted, do not re-spin!
+    if (
+      spinData.startTime === lastProcessedStartTime.current ||
+      spinData.startTime < mountTimeRef.current
+    ) {
       if (rotationAngle !== spinData.targetAngle) {
         setRotationAngle(spinData.targetAngle);
       }

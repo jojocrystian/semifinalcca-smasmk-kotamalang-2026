@@ -927,38 +927,6 @@ export default function AdminPage() {
                   onSetCustomTotal={(sec) => handleSetCustomTimer(sec, true)}
                 />
 
-                {/* Sound effect tester */}
-                <div className="w-full mt-6 pt-4 border-t border-slate-800/80">
-                  <span className="text-[11px] font-semibold text-slate-400 block text-center mb-2">
-                    Uji Efek Suara:
-                  </span>
-                  <div className="flex items-center justify-center gap-1.5 flex-wrap">
-                    <button
-                      onClick={() => sounds.playCorrect()}
-                      className="px-2.5 py-1 bg-emerald-500/20 text-emerald-300 text-[11px] font-bold rounded-lg border border-emerald-500/30 hover:bg-emerald-500/30"
-                    >
-                      🔔 Benar
-                    </button>
-                    <button
-                      onClick={() => sounds.playWrong()}
-                      className="px-2.5 py-1 bg-rose-500/20 text-rose-300 text-[11px] font-bold rounded-lg border border-rose-500/30 hover:bg-rose-500/30"
-                    >
-                      ❌ Salah
-                    </button>
-                    <button
-                      onClick={() => sounds.playTimeout()}
-                      className="px-2.5 py-1 bg-amber-500/20 text-amber-300 text-[11px] font-bold rounded-lg border border-amber-500/30 hover:bg-amber-500/30"
-                    >
-                      ⏰ Waktu Habis
-                    </button>
-                    <button
-                      onClick={() => sounds.playFanfare()}
-                      className="px-2.5 py-1 bg-purple-500/20 text-purple-300 text-[11px] font-bold rounded-lg border border-purple-500/30 hover:bg-purple-500/30"
-                    >
-                      🎺 Fanfare
-                    </button>
-                  </div>
-                </div>
               </div>
 
               {/* TIM B CARD */}

@@ -1,9 +1,7 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React from 'react';
 import { Team } from '@/types/cca';
-import { sounds } from '@/lib/audio';
-import confetti from 'canvas-confetti';
 import { Trophy, Medal, Award, Download, FileSpreadsheet, Sparkles } from 'lucide-react';
 import { exportTeamsToCSV, exportLogsToCSV } from '@/lib/sheets';
 import { ScoreLogItem } from '@/types/cca';
@@ -27,16 +25,7 @@ export const LeaderboardPodium: React.FC<LeaderboardPodiumProps> = ({
   const thirdPlace = sortedTeams[2];
   const otherTeams = sortedTeams.slice(3);
 
-  // Trigger celebration effects on mount
-  useEffect(() => {
-    sounds.playFanfare();
-    confetti({
-      particleCount: 150,
-      spread: 90,
-      origin: { y: 0.5 },
-      colors: ['#f59e0b', '#fbbf24', '#e2e8f0', '#b45309', '#3b82f6'],
-    });
-  }, []);
+
 
   return (
     <div className={`w-full flex flex-col items-center ${fullscreen ? 'max-w-7xl' : 'max-w-5xl'} mx-auto`}>

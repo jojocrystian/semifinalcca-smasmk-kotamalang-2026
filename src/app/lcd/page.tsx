@@ -31,7 +31,8 @@ export default function LcdStagePage() {
   const [soundMuted, setSoundMuted] = useState(false);
   const [showCursor, setShowCursor] = useState(true);
   const hideCursorTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const lastActionTimestampRef = useRef<number>(0);
+  const lastActionTimestampRef = useRef<number>(Date.now());
+  const prevScreenModeRef = useRef<string>(realtime.getState().match.screenMode);
 
   useEffect(() => {
     setMounted(true);
@@ -42,27 +43,30 @@ export default function LcdStagePage() {
     const unsub = realtime.subscribe((newState) => {
       setState(newState);
 
-      // Trigger audio based on new actions if received
+      // Trigger audio based on new actions received AFTER page was opened
       const action = newState.match.lastAction;
-      if (action && action.timestamp !== lastActionTimestampRef.current) {
+      if (action && action.timestamp > lastActionTimestampRef.current) {
         lastActionTimestampRef.current = action.timestamp;
         if (action.type === 'BENAR') {
           sounds.playCorrect();
-          confetti({
-            particleCount: 50,
-            spread: 60,
-            origin: {
-              x: action.team === 'A' ? 0.3 : 0.7,
-              y: 0.5,
-            },
-            colors: ['#10B981', '#34D399', '#F59E0B'],
-          });
         } else if (action.type === 'SALAH') {
           sounds.playWrong();
         } else if (action.type === 'TIMER_TIMEOUT') {
           sounds.playTimeout();
         }
       }
+
+      // Trigger 3 Besar celebration only when transition to leaderboard occurs AFTER mount
+      if (newState.match.screenMode === 'leaderboard' && prevScreenModeRef.current !== 'leaderboard') {
+        sounds.playFanfare();
+        confetti({
+          particleCount: 150,
+          spread: 90,
+          origin: { y: 0.5 },
+          colors: ['#f59e0b', '#fbbf24', '#e2e8f0', '#b45309', '#3b82f6'],
+        });
+      }
+      prevScreenModeRef.current = newState.match.screenMode;
     });
 
     // Auto-hide cursor when mouse is idle
