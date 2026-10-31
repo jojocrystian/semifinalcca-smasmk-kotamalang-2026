@@ -104,7 +104,7 @@ export const INITIAL_TEAMS: Team[] = [
 ];
 
 export const INITIAL_APP_STATE: AppState = {
-  version: 1,
+  version: 101,
   updatedAt: Date.now(),
   teams: INITIAL_TEAMS,
   match: {

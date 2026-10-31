@@ -330,6 +330,20 @@ export default function AdminPage() {
     }
   };
 
+  const handleResetAllData = (resetTeamsToDefault: boolean = false) => {
+    const confirmMsg = resetTeamsToDefault
+      ? 'PERINGATAN: Apakah Anda yakin ingin mereset TOTAL seluruh data? Skor semua tim kembali 0, babak kembali ke Sesi 1, riwayat log dihapus, dan daftar tim dikembalikan ke 10 tim awal Kota Malang.'
+      : 'Apakah Anda yakin ingin mereset skor semua tim menjadi 0 dan mengembalikan babak ke Sesi 1?';
+
+    if (confirm(confirmMsg)) {
+      realtime.dispatch({
+        type: 'RESET_ALL_DATA',
+        payload: { resetTeamsList: resetTeamsToDefault },
+      });
+      alert('Data semua tim dan babak berhasil di-reset ke kondisi awal!');
+    }
+  };
+
   const handleAddTeam = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTeamName.trim() || !newTeamSchool.trim()) return;
@@ -1162,12 +1176,30 @@ export default function AdminPage() {
                   </p>
                 </div>
 
-                <button
-                  onClick={() => exportTeamsToCSV(state.teams)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold border border-slate-700 transition-all"
-                >
-                  <Download className="w-3.5 h-3.5 text-emerald-400" /> Ekspor CSV
-                </button>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    onClick={() => handleResetAllData(false)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 rounded-xl text-xs font-bold border border-rose-500/40 transition-all shadow-sm"
+                    title="Reset skor seluruh tim ke 0 dan babak ke Sesi 1"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 text-rose-400" /> Reset Skor & Babak
+                  </button>
+
+                  <button
+                    onClick={() => handleResetAllData(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold border border-slate-700 transition-all"
+                    title="Kembalikan ke 10 tim awal Kota Malang dengan skor 0 dan Sesi 1"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5 text-amber-400" /> Reset Total (10 Tim Awal)
+                  </button>
+
+                  <button
+                    onClick={() => exportTeamsToCSV(state.teams)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold border border-slate-700 transition-all"
+                  >
+                    <Download className="w-3.5 h-3.5 text-emerald-400" /> Ekspor CSV
+                  </button>
+                </div>
               </div>
 
               <div className="overflow-x-auto">

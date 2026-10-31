@@ -104,6 +104,7 @@ export type SyncAction =
   | { type: 'PAUSE_TIMER' }
   | { type: 'RESET_TIMER'; payload?: { seconds?: number } }
   | { type: 'FINISH_MATCH_SESSION' }
+  | { type: 'RESET_ALL_DATA'; payload?: { resetTeamsList?: boolean } }
   | { type: 'UPDATE_TEAMS'; payload: Team[] }
   | { type: 'UPDATE_SETTINGS'; payload: Partial<AppState['settings']> }
   | { type: 'TRIGGER_SOUND'; payload: 'benar' | 'salah' | 'tick' | 'timeout' | 'spin' | 'fanfare' };

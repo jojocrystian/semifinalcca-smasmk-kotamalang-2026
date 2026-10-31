@@ -1,7 +1,7 @@
 import { AppState, SyncAction, ScoreLogItem } from '@/types/cca';
-import { INITIAL_APP_STATE } from './initialData';
+import { INITIAL_APP_STATE, INITIAL_TEAMS } from './initialData';
 
-const STORAGE_KEY = 'cca_semifinal_state_v2';
+const STORAGE_KEY = 'cca_semifinal_state_v3';
 const BROADCAST_CHANNEL_NAME = 'cca_realtime_channel';
 
 type StateListener = (state: AppState) => void;
@@ -949,6 +949,47 @@ class RealtimeManager {
               timestamp: now,
             },
           },
+        };
+        break;
+      }
+
+      case 'RESET_ALL_DATA': {
+        const resetTeams = action.payload?.resetTeamsList
+          ? INITIAL_TEAMS
+          : this.state.teams.map((t) => ({
+              ...t,
+              totalScore: 0,
+              hasPlayed: false,
+              isEliminatedFromWheel: false,
+            }));
+
+        this.state = {
+          ...this.state,
+          teams: resetTeams,
+          match: {
+            sessionNumber: 1,
+            sessionTitle: 'Babak Semifinal',
+            teamAId: null,
+            teamBId: null,
+            teamAScore: 0,
+            teamBScore: 0,
+            activeAnsweringTeam: null,
+            correctPoints: this.state.match.correctPoints ?? 10,
+            wrongPoints: this.state.match.wrongPoints ?? 0,
+            timerSeconds: this.state.settings.defaultTimerSeconds || 15,
+            timerTotal: this.state.settings.defaultTimerSeconds || 15,
+            timerRunning: false,
+            timerLastUpdated: now,
+            timerExpiresAt: null,
+            screenMode: 'welcome',
+            questionNumber: 1,
+            spinWinnerId: null,
+            isSpinning: false,
+            wheelCandidateSlot: null,
+            spinData: null,
+            lastAction: null,
+          },
+          scoreLogs: [],
         };
         break;
       }
