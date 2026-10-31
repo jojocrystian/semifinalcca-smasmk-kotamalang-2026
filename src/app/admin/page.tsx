@@ -47,7 +47,17 @@ export default function AdminPage() {
     activeClientsCount: 0,
     lastSyncSource: 'Local',
   });
-  const [activeTab, setActiveTab] = useState<'match' | 'spin' | 'teams' | 'sheets'>('spin');
+  const [activeTab, setActiveTabState] = useState<'match' | 'spin' | 'teams' | 'sheets'>('match');
+
+  const setActiveTab = (tab: 'match' | 'spin' | 'teams' | 'sheets') => {
+    setActiveTabState(tab);
+    if (typeof window !== 'undefined') {
+      try {
+        sessionStorage.setItem('cca_admin_tab', tab);
+      } catch {}
+    }
+  };
+
   const [soundMuted, setSoundMuted] = useState(false);
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
 
@@ -88,6 +98,14 @@ export default function AdminPage() {
 
   useEffect(() => {
     setMounted(true);
+    if (typeof window !== 'undefined') {
+      try {
+        const savedTab = sessionStorage.getItem('cca_admin_tab') as 'match' | 'spin' | 'teams' | 'sheets' | null;
+        if (savedTab && ['match', 'spin', 'teams', 'sheets'].includes(savedTab)) {
+          setActiveTabState(savedTab);
+        }
+      } catch {}
+    }
     // Initialize WebRTC as Admin Host
     realtime.initPeer('admin');
     setState(realtime.getState());
@@ -307,9 +325,8 @@ export default function AdminPage() {
   };
 
   const handleFinishMatch = () => {
-    if (confirm('Apakah yakin ingin mengakhiri sesi tanding ini dan memperbarui klasemen?')) {
+    if (confirm('Apakah yakin ingin menyelesaikan sesi pertandingan ini dan mengarahkan layar LCD ke mode standby?')) {
       realtime.dispatch({ type: 'FINISH_MATCH_SESSION' });
-      setActiveTab('spin');
     }
   };
 
@@ -759,8 +776,9 @@ export default function AdminPage() {
                 <button
                   onClick={handleFinishMatch}
                   className="px-5 py-3 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-black rounded-2xl shadow-lg shadow-amber-500/20 flex items-center gap-2 transition-all"
+                  title="Selesaikan sesi pertandingan dan arahkan layar LCD panggung ke mode standby"
                 >
-                  <Trophy className="w-5 h-5" /> Selesaikan Sesi & Update 3 Besar
+                  <CheckCircle2 className="w-5 h-5" /> Selesaikan Sesi (Layar Standby)
                 </button>
               </div>
             </div>

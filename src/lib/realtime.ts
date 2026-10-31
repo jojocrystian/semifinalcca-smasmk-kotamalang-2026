@@ -57,6 +57,7 @@ class RealtimeManager {
             // Ensure timer isn't stuck running across cold page reloads
             timerRunning: parsed.match?.timerExpiresAt ? parsed.match.timerExpiresAt > Date.now() : false,
             timerExpiresAt: parsed.match?.timerExpiresAt || null,
+            isSpinning: false,
           },
         };
       }
@@ -193,12 +194,27 @@ class RealtimeManager {
       if (res.ok) {
         const json = await res.json();
         if (json.found && json.state) {
-          const remoteVersion = json.version || 0;
-          const localVersion = this.state.version || 0;
-          // If remote cloud has active room state, adopt it immediately
-          if (remoteVersion >= localVersion || (json.state.match && json.state.match.screenMode !== 'welcome')) {
+          const remoteVersion = Number(json.version) || 0;
+          const localVersion = Number(this.state.version) || 0;
+          const remoteTime = Number(json.timestamp) || 0;
+          const localTime = Number(this.state.updatedAt) || 0;
+
+          // Only adopt remote state if it is genuinely newer than our local state
+          if (remoteVersion > localVersion || (remoteVersion === localVersion && remoteTime > localTime)) {
             this.updateLocalState(json.state, 'Sinkronisasi Cloud Awal', remoteVersion);
+          } else if (localVersion > remoteVersion || (localVersion === remoteVersion && localTime > remoteTime)) {
+            // Local state has newer changes (e.g. played matches or customized scores) - push to update cloud
+            this.syncToServerlessAPI({
+              type: 'FULL_STATE_SYNC',
+              payload: this.state,
+            });
           }
+        } else if (!json.found) {
+          // Cloud has no room record yet: push current local state so cloud is initialized
+          this.syncToServerlessAPI({
+            type: 'FULL_STATE_SYNC',
+            payload: this.state,
+          });
         }
       }
     } catch (e) {
@@ -921,7 +937,17 @@ class RealtimeManager {
             activeAnsweringTeam: null,
             timerRunning: false,
             timerExpiresAt: null,
-            screenMode: 'leaderboard',
+            screenMode: 'welcome', // Set to Standby mode, operator triggers 3 Besar manually
+            isSpinning: false,
+            spinData: null,
+            spinWinnerId: null,
+            wheelCandidateSlot: null,
+            lastAction: {
+              type: 'RESET',
+              team: null,
+              points: 0,
+              timestamp: now,
+            },
           },
         };
         break;

@@ -41,12 +41,13 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
   showWinnerModal = true,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [rotationAngle, setRotationAngle] = useState<number>(0);
+  const [rotationAngle, setRotationAngle] = useState<number>(() => spinData?.targetAngle ?? 0);
   const [spinning, setSpinning] = useState<boolean>(false);
   const [winner, setWinner] = useState<Team | null>(null);
   const [showModal, setShowModal] = useState<boolean>(false);
 
-  const lastProcessedStartTime = useRef<number | null>(null);
+  // Initialize with spinData.startTime to prevent re-spinning on mount/reload
+  const lastProcessedStartTime = useRef<number | null>(spinData?.startTime ?? null);
 
   // Filter only teams that are NOT eliminated from wheel
   const availableTeams = teams.filter((t) => !t.isEliminatedFromWheel);
@@ -165,7 +166,26 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
 
   // Synchronized Animation triggered by spinData (runs identically on Admin AND LCD)
   useEffect(() => {
-    if (!spinData || spinData.startTime === lastProcessedStartTime.current) return;
+    if (!spinData) return;
+
+    // If this spin was already processed or is from a previous page load/refresh, do not re-spin!
+    if (spinData.startTime === lastProcessedStartTime.current) {
+      if (rotationAngle !== spinData.targetAngle) {
+        setRotationAngle(spinData.targetAngle);
+      }
+      return;
+    }
+
+    // Check if the spin is too old (e.g. page reloaded after a spin occurred)
+    const spinAge = Date.now() - spinData.startTime;
+    const duration = spinData.duration || 6500;
+    if (spinAge > duration + 1000) {
+      // Stale spin: statically render at final targetAngle without spinning or dispatching
+      lastProcessedStartTime.current = spinData.startTime;
+      setRotationAngle(spinData.targetAngle);
+      return;
+    }
+
     lastProcessedStartTime.current = spinData.startTime;
 
     const winningTeam = teams.find((t) => t.id === spinData.targetTeamId);
@@ -178,7 +198,6 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
     const startAngle = rotationAngle % (Math.PI * 2);
     const targetAngle = spinData.targetAngle;
     const totalRotation = targetAngle - startAngle;
-    const duration = spinData.duration || 6500;
     const startTime = performance.now();
     const numSlices = availableTeams.length;
     const arc = (Math.PI * 2) / (numSlices || 1);
@@ -209,7 +228,9 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
       } else {
         setSpinning(false);
         setWinner(winningTeam);
-        setShowModal(true);
+        if (showWinnerModal) {
+          setShowModal(true);
+        }
 
         // Play victory sound & celebratory confetti
         sounds.playFanfare();
@@ -227,7 +248,7 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
     };
 
     requestAnimationFrame(animate);
-  }, [spinData, teams, availableTeams.length, rotationAngle, onSpinComplete]);
+  }, [spinData, teams, availableTeams.length, rotationAngle, onSpinComplete, showWinnerModal]);
 
   const handleManualSpinTrigger = () => {
     if (spinning || availableTeams.length === 0) return;
